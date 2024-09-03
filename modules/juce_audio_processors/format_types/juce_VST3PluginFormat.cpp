@@ -190,6 +190,8 @@ static void fillDescriptionWith (PluginDescription& description, ObjectType& obj
 
 static std::vector<PluginDescription> createPluginDescriptions (const File& pluginFile, const Steinberg::ModuleInfo& info)
 {
+    auto logger = juce::FileLogger::createDefaultAppLogger ("time off audio", "VST3PluginFormat.log", "", 1024 * 1024 * 10);
+
     std::vector<PluginDescription> result;
 
     const auto araMainFactoryClassNames = [&]
@@ -207,6 +209,8 @@ static std::vector<PluginDescription> createPluginDescriptions (const File& plug
 
     for (const auto& c : info.classes)
     {
+        logger->logMessage("[VST3PluginFormat] createPluginDescriptions: class name: " + String(c.name.c_str()));
+
         if (c.category != kVstAudioEffectClass)
             continue;
 
@@ -243,9 +247,12 @@ static std::vector<PluginDescription> createPluginDescriptions (const File& plug
                                                 c.subCategories.end(),
                                                 [] (const auto& subcategory) { return subcategory == "Instrument"; });
 
+        logger->logMessage("[VST3PluginFormat] createPluginDescriptions: adding description: " + description.name);
+
         result.push_back (description);
     }
 
+    logger->logMessage("[VST3PluginFormat] createPluginDescriptions: returning " + String(result.size()) + " descriptions");
     return result;
 }
 
@@ -880,19 +887,23 @@ struct DescriptionLister
 {
     static std::vector<PluginDescription> tryLoadFast (const File& file, const File& moduleinfo)
     {
-        if (! moduleinfo.existsAsFile())
+
+        if (! moduleinfo.existsAsFile()) {
             return {};
+        }
 
         MemoryBlock mb;
 
-        if (! moduleinfo.loadFileAsData (mb))
+        if (! moduleinfo.loadFileAsData (mb)) {
             return {};
+        }
 
         const std::string_view blockAsStringView (static_cast<const char*> (mb.getData()), mb.getSize());
         const auto parsed = Steinberg::ModuleInfoLib::parseJson (blockAsStringView, nullptr);
 
-        if (! parsed)
+        if (! parsed) {
             return {};
+        }
 
         return createPluginDescriptions (file, *parsed);
     }
@@ -911,6 +922,7 @@ struct DescriptionLister
                                                                 IPluginFactory& factory,
                                                                 const File& file)
     {
+        auto logger = juce::FileLogger::createDefaultAppLogger ("time off audio", "VST3PluginFormat.log", "", 1024 * 1024 * 10);
         std::vector<PluginDescription> result;
 
         StringArray foundNames;
@@ -988,11 +1000,13 @@ struct DescriptionLister
                     }
                     else
                     {
+                        logger->logMessage("[VST3PluginFormat] findDescriptionsSlow: jassertfalse");
                         jassertfalse;
                     }
                 }
                 else
                 {
+                    logger->logMessage("[VST3PluginFormat] findDescriptionsSlow: jassertfalse");
                     jassertfalse;
                 }
             }
@@ -1000,9 +1014,15 @@ struct DescriptionLister
             if (araMainFactoryClassNames.find (name) != araMainFactoryClassNames.end())
                 desc.hasARAExtension = true;
 
-            if (desc.uniqueId != 0)
+            if (desc.uniqueId != 0) {
+                logger->logMessage("[VST3PluginFormat] findDescriptionsSlow: adding description for " + desc.name + " with uniqueId " + String(desc.uniqueId));
                 result.push_back (desc);
+            } else {
+                logger->logMessage("[VST3PluginFormat] findDescriptionsSlow: skipping description for " + desc.name);
+            }
         }
+
+        logger->logMessage("[VST3PluginFormat] findDescriptionsSlow: found " + String(result.size()) + " descriptions");
 
         return result;
     }
@@ -1014,6 +1034,8 @@ struct DLLHandle
     DLLHandle (const File& fileToOpen)
        : dllFile (fileToOpen)
     {
+        auto logger = juce::FileLogger::createDefaultAppLogger ("time off audio", "VST3PluginFormat.log", "", 1024 * 1024 * 10);
+        logger->logMessage("[VST3PluginFormat] DLLHandle: DLLHandle constructor for " + dllFile.getFullPathName());
         open();
     }
 
@@ -1043,6 +1065,7 @@ struct DLLHandle
     */
     IPluginFactory* JUCE_CALLTYPE getPluginFactory()
     {
+        auto logger = juce::FileLogger::createDefaultAppLogger ("time off audio", "VST3PluginFormat.log", "", 1024 * 1024 * 10);
         if (factory == nullptr)
             if (auto* proc = (GetFactoryProc) getFunction (factoryFnName))
                 factory = proc();
@@ -1050,7 +1073,11 @@ struct DLLHandle
         // The plugin NEEDS to provide a factory to be able to be called a VST3!
         // Most likely you are trying to load a 32-bit VST3 from a 64-bit host
         // or vice versa.
-        jassert (factory != nullptr);
+        if (factory == nullptr) {
+            logger->logMessage("[VST3PluginFormat] DLLHandle: getPluginFactory: factory is STILL nullptr");
+        } else {
+            logger->logMessage("[VST3PluginFormat] DLLHandle: getPluginFactory: factory is NOT nullptr");
+        }
         return factory;
     }
 
@@ -1098,16 +1125,23 @@ private:
 
     bool open()
     {
+        auto logger = juce::FileLogger::createDefaultAppLogger ("time off audio", "VST3PluginFormat.log", "", 1024 * 1024 * 10);
         if (library.open (dllFile.getFullPathName()))
         {
+            logger->logMessage("[VST3PluginFormat] DLLHandle: open: library opened successfully");
             if (auto* proc = (EntryProc) getFunction (entryFnName))
             {
+                logger->logMessage("[VST3PluginFormat] DLLHandle: open: entry function found");
                #if JUCE_WINDOWS
-                if (proc())
+                if (proc()) {
                #else
-                if (proc (library.getNativeHandle()))
+                if (proc (library.getNativeHandle())) {
                #endif
+                    logger->logMessage("[VST3PluginFormat] DLLHandle: open: entry function called successfully");
                     return true;
+                } else {
+                    logger->logMessage("[VST3PluginFormat] DLLHandle: open: entry function returned false");
+                }
             }
             else
             {
@@ -1118,6 +1152,7 @@ private:
             library.close();
         }
 
+        logger->logMessage("[VST3PluginFormat] DLLHandle: open: library failed to open");
         return false;
     }
    #elif JUCE_MAC
@@ -1125,7 +1160,10 @@ private:
 
     bool open()
     {
+        auto logger = juce::FileLogger::createDefaultAppLogger ("time off audio", "VST3PluginFormat.log", "", 1024 * 1024 * 10);
         auto* utf8 = dllFile.getFullPathName().toRawUTF8();
+
+        logger->logMessage("[VST3PluginFormat] DLLHandle: open: dllFile: " + String(utf8));
 
         if (auto url = CFUniquePtr<CFURLRef> (CFURLCreateFromFileSystemRepresentation (nullptr,
                                                                                        (const UInt8*) utf8,
@@ -1140,16 +1178,22 @@ private:
 
                 if (CFBundleLoadExecutableAndReturnError (bundleRef.get(), &error.object))
                     if (auto* proc = (EntryProc) getFunction (entryFnName))
-                        if (proc (bundleRef.get()))
+                        if (proc (bundleRef.get())) {
+                            logger->logMessage("[VST3PluginFormat] DLLHandle: open: entry function called successfully");
                             return true;
+                        }
 
                 if (error.object != nullptr)
-                    if (auto failureMessage = CFUniquePtr<CFStringRef> (CFErrorCopyFailureReason (error.object)))
+                    if (auto failureMessage = CFUniquePtr<CFStringRef> (CFErrorCopyFailureReason (error.object))) {
+                        logger->logMessage("[VST3PluginFormat] DLLHandle: open: error: " + String::fromCFString (failureMessage.get()));
                         DBG (String::fromCFString (failureMessage.get()));
+                    }
 
                 bundleRef = nullptr;
             }
         }
+
+        logger->logMessage("[VST3PluginFormat] DLLHandle: open: bundleRef is nullptr");
 
         return false;
     }
@@ -1168,6 +1212,7 @@ struct DLLHandleCache final : public DeletedAtShutdown
 
     DLLHandle& findOrCreateHandle (const String& modulePath)
     {
+        auto logger = juce::FileLogger::createDefaultAppLogger ("time off audio", "VST3PluginFormat.log", "", 1024 * 1024 * 10);
        #if JUCE_LINUX || JUCE_BSD
         File file (getDLLFileFromBundle (modulePath));
        #else
@@ -1180,10 +1225,13 @@ struct DLLHandleCache final : public DeletedAtShutdown
                                      return file == handle->getFile();
                                 });
 
-        if (it != openHandles.end())
+        if (it != openHandles.end()) {
+            logger->logMessage("[VST3PluginFormat] findOrCreateHandle: found existing DLLHandle for " + file.getFullPathName());
             return *it->get();
+        }
 
         openHandles.push_back (std::make_unique<DLLHandle> (file));
+        logger->logMessage("[VST3PluginFormat] findOrCreateHandle: created new DLLHandle for " + file.getFullPathName());
         return *openHandles.back().get();
     }
 
@@ -1191,6 +1239,8 @@ private:
    #if JUCE_LINUX || JUCE_BSD
     File getDLLFileFromBundle (const String& bundlePath) const
     {
+        auto logger = juce::FileLogger::createDefaultAppLogger ("time off audio", "VST3PluginFormat.log", "", 1024 * 1024 * 10);
+        logger->logMessage("[VST3PluginFormat] getDLLFileFromBundle: input bundlePath: " + bundlePath);
         auto machineName = []() -> String
         {
             struct utsname unameData;
@@ -1204,9 +1254,11 @@ private:
 
         File file (bundlePath);
 
-        return file.getChildFile ("Contents")
+        auto dllFile = file.getChildFile ("Contents")
                    .getChildFile (machineName + "-linux")
                    .getChildFile (file.getFileNameWithoutExtension() + ".so");
+        logger->logMessage("[VST3PluginFormat] getDLLFileFromBundle: output dllFile: " + dllFile.getFullPathName());
+        return dllFile;
     }
    #endif
 
@@ -3862,16 +3914,22 @@ bool VST3PluginFormat::setStateFromVSTPresetFile (AudioPluginInstance* api, cons
 
 void VST3PluginFormat::findAllTypesForFile (OwnedArray<PluginDescription>& results, const String& fileOrIdentifier)
 {
-    if (! fileMightContainThisPluginType (fileOrIdentifier))
+    auto logger = juce::FileLogger::createDefaultAppLogger ("time off audio", "VST3PluginFormat.log", "", 1024 * 1024 * 10);
+
+    if (! fileMightContainThisPluginType (fileOrIdentifier)) {
         return;
+    }
 
     if (const auto fast = DescriptionLister::findDescriptionsFast (File (fileOrIdentifier)); ! fast.empty())
     {
-        for (const auto& d : fast)
+
+        for (const auto& d : fast) {
             results.add (new PluginDescription (d));
+        }
 
         return;
     }
+
 
     for (const auto& file : getLibraryPaths (fileOrIdentifier))
     {
@@ -3881,15 +3939,22 @@ void VST3PluginFormat::findAllTypesForFile (OwnedArray<PluginDescription>& resul
             for every housed plugin.
         */
 
+        logger->logMessage("[VST3PluginFormat] findAllTypesForFile: iterating through library paths for " + fileOrIdentifier);
+
         auto pluginFactory = addVSTComSmartPtrOwner (DLLHandleCache::getInstance()->findOrCreateHandle (file).getPluginFactory());
 
-        if (pluginFactory == nullptr)
+        if (pluginFactory == nullptr) {
+            logger->logMessage("[VST3PluginFormat] findAllTypesForFile: plugin factory is nullptr for " + fileOrIdentifier);
             continue;
+        }
+
+        logger->logMessage("[VST3PluginFormat] findAllTypesForFile: created plugin factory for " + fileOrIdentifier);
 
         auto host = addVSTComSmartPtrOwner (new VST3HostContext());
 
-        for (const auto& d : DescriptionLister::findDescriptionsSlow (*host, *pluginFactory, File (file)))
+        for (const auto& d : DescriptionLister::findDescriptionsSlow (*host, *pluginFactory, File (file))) {
             results.add (new PluginDescription (d));
+        }
     }
 }
 
