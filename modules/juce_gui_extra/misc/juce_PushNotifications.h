@@ -25,6 +25,9 @@
 
 #pragma once
 
+#ifndef WIN32_LEAN_AND_MEAN
+#error "WIN32_LEAN_AND_MEAN not defined"
+#endif
 namespace juce
 {
 
@@ -48,6 +51,7 @@ public:
    #ifndef DOXYGEN
     JUCE_DECLARE_SINGLETON (PushNotifications, false)
    #endif
+
 
     //==============================================================================
     /** Represents a notification that can be sent or received. */
